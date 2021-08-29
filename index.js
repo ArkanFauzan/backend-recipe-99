@@ -16,16 +16,14 @@ const jwt = require('jsonwebtoken');
 // connect to mysql
 const {con} = require('./connection');
 
-// delete the old photo in public/uploads (after being updated)
-const fs = require('fs')
-const { promisify } = require('util')
-const unlinkAsync = promisify(fs.unlink)
-
 // import custom function
 const {sha256} = require('./services/function/hash');
 const {validateRegister, validateRecipe} = require('./services/function/validateForm');
 const {auth} = require('./services/middleware/auth');
 const {upload} = require('./services/middleware/multerUpload');
+
+// To store photo in cloudinary
+const {uploadFromBuffer, deleteByPublicId} = require('./services/function/cloudinary')
 
 app.use(cors());
 app.use(express.json());
@@ -106,71 +104,47 @@ app.get('/get-user',(req,res)=>{
 })
 
 app.post('/recipes', [auth, upload.array('recipe_photos', 5)] , async(req,res)=>{
-    // ingredients, cooking_steps, and recipe_photos format = name_-_*_-_name etc (separate with _-_*_-_) 
     const {name, ingredients, cooking_steps } = req.body;
-    req.body.recipe_photos = "";
-    req.files.forEach((file,idx) => {
-        if(idx!==0){
-            req.body.recipe_photos += "_-_*_-_"+file.filename
-        }
-        else{
-            req.body.recipe_photos += file.filename
-        }
+    const recipe_photos = [];
+    req.files.forEach(file => {
+        recipe_photos.push(file.buffer);
     });
-    const valid = validateRecipe(name,ingredients,cooking_steps,req.body.recipe_photos);
-    const {recipe_photos} = req.body;
+    const valid = validateRecipe(name,ingredients,cooking_steps,recipe_photos);
     if (!valid) {
-        if (recipe_photos!=="") {
-            if (recipe_photos.split('_-_*_-_').length>=2) {
-                recipe_photos.split('_-_*_-_').forEach(async filename=>{
-                    if (fs.existsSync(`public\\uploads\\${filename}`)) {
-                        await unlinkAsync(`public\\uploads\\${filename}`);
-                    }
-                })
-            }
-            else{
-                if (fs.existsSync(`public\\uploads\\${recipe_photos}`)){
-                    await unlinkAsync(`public\\uploads\\${recipe_photos}`);
-                }
-            }
-        }
         return res.status(422).json({message: "All form field is required"})
     }
     else{
-        const query = "insert into recipes values (?,?,?,?,?,?)";
-        const dataForm = [nanoid(),req.user.id,name, ingredients, cooking_steps, recipe_photos];
+        // upload photo to cloudinary
+        const uploadedPhoto = []
+        for(const bufferPhoto of recipe_photos){
+            const result = await uploadFromBuffer(bufferPhoto);
+            uploadedPhoto.push({
+                public_id:  result.public_id,
+                secure_url: result.secure_url
+            })
+        }
+        const query = "insert into recipes (id,user_id,name,ingredients,cooking_steps,recipe_photos) values (?,?,?,?,?,?)";
+        const dataForm = [nanoid(),req.user.id,name, ingredients, cooking_steps, JSON.stringify(uploadedPhoto)];
         con.query(query, dataForm, (err, data, fields)=>{
             if(!err){
                 return res.status(200).json({message:'success'});
             }
             else{
-                return res.status(500).send();
+                return res.status(500).json({message:err});
             }
         })
     }
 })
 
 app.get('/recipes' , (req,res)=>{
-    // ingredients, cooking_steps, and recipe_photos format = name_-_*_-_name etc (separate with _-_*_-_)
     const query = "select recipes.*,users.name as username from recipes join users on recipes.user_id=users.id";
     con.query(query, (err, data, fields)=>{
         if(!err){
-            data.forEach(recipe=>{
-                if(recipe.recipe_photos.split('_-_*_-_').length===1){
-                    recipe.recipe_photos = `${AppUrl}/recipe-image/${recipe.recipe_photos}`
-                }
-                else{
-                    let recipe_photos = "";
-                    recipe.recipe_photos.split('_-_*_-_').forEach(photo=>{
-                        recipe_photos==="" 
-                        ? 
-                        recipe_photos += `${AppUrl}/recipe-image/${photo}` 
-                        : 
-                        recipe_photos += `_-_*_-_${AppUrl}/recipe-image/${photo}`  
-                    })
-                    recipe.recipe_photos = recipe_photos;
-                }
-            })
+            for(const recipe of data){
+                recipe.ingredients = JSON.parse(recipe.ingredients);
+                recipe.cooking_steps = JSON.parse(recipe.cooking_steps);
+                recipe.recipe_photos = JSON.parse(recipe.recipe_photos);
+            }
             return res.status(200).json({recipes:data});
         }
         else{
@@ -186,67 +160,42 @@ app.put('/recipes/:recipeId', [auth, upload.array('recipe_photos', 5)] , async(r
     con.query(query, dataRecipe, async (err, data, fields)=>{
         if(!err){
             if (data.length!==1) {
-                req.files.forEach(async file=>{
-                    if (fs.existsSync(`public\\uploads\\${file.filename}`)){
-                        await unlinkAsync(`public\\uploads\\${file.filename}`);
-                    }
-                })
                 return res.status(401).send();
             }
             else{
                 const oldRecipe = data[0];
-                // ingredients, cooking_steps, and recipe_photos format = name_-_*_-_name etc (separate with _-_*_-_) 
+
                 const {name, ingredients, cooking_steps } = req.body;
-                req.body.recipe_photos = "";
-                req.files.forEach((file,idx) => {
-                    if(idx!==0){
-                        req.body.recipe_photos += "_-_*_-_"+file.filename
-                    }
-                    else{
-                        req.body.recipe_photos += file.filename
-                    }
+                // arr photo (buffer format)
+                const recipe_photos = [];
+                req.files.forEach(photo => {
+                    recipe_photos.push(photo.buffer);
                 });
-                const valid = validateRecipe(name,ingredients,cooking_steps,req.body.recipe_photos);
-                const {recipe_photos} = req.body;
+
+                const valid = validateRecipe(name,ingredients,cooking_steps,recipe_photos);
+
                 if (!valid) {
-                    // delete the recently uploaded file
-                    if (recipe_photos!=="") {
-                        if (recipe_photos.split('_-_*_-_').length>=2) {
-                            recipe_photos.split('_-_*_-_').forEach(async filename=>{
-                                if (fs.existsSync(`public\\uploads\\${filename}`)){
-                                    await unlinkAsync(`public\\uploads\\${filename}`);
-                                }
-                            })
-                        }
-                        else{
-                            if (fs.existsSync(`public\\uploads\\${recipe_photos}`)){
-                                await unlinkAsync(`public\\uploads\\${recipe_photos}`);
-                            }
-                        }
-                    }
                     return res.status(422).json({message: "All form field is required"})
                 }
                 else{
+                    const uploadedPhoto = [];
+                    for(photo of recipe_photos){
+                        const result = await uploadFromBuffer(photo);
+                        uploadedPhoto.push({
+                            public_id: result.public_id,
+                            secure_url: result.secure_url
+                        })
+                    } 
                     query = "update recipes set name=?, ingredients=?, cooking_steps=?, recipe_photos=? where id=? and user_id=?";
-                    const dataForm = [name, ingredients, cooking_steps, recipe_photos, req.params.recipeId, req.user.id];
+                    const dataForm = [name, ingredients, cooking_steps, JSON.stringify(uploadedPhoto), req.params.recipeId, req.user.id];
                     con.query(query, dataForm, async (err, data, fields)=>{
                         if(!err){
                             // delete the old uploaded file
-                            if (oldRecipe.recipe_photos!=="") {
-                                if (oldRecipe.recipe_photos.split('_-_*_-_').length>=2) {
-                                    oldRecipe.recipe_photos.split('_-_*_-_').forEach(async filename=>{
-                                        if (fs.existsSync(`public\\uploads\\${filename}`)){
-                                            await unlinkAsync(`public\\uploads\\${filename}`);
-                                        }
-                                    })
-                                }
-                                else{
-                                    if (fs.existsSync(`public\\uploads\\${oldRecipe.recipe_photos}`)){
-                                        await unlinkAsync(`public\\uploads\\${oldRecipe.recipe_photos}`);
-                                    }
-                                }
+                            const oldPhoto = JSON.parse(oldRecipe.recipe_photos);
+                            for(const photo of oldPhoto){
+                                await deleteByPublicId(photo.public_id);
                             }
-                            return res.status(200).json({message:'success'});
+                            return res.status(200).json({message:'update success'});
                         }
                         else{
                             return res.status(500).send();
@@ -256,11 +205,6 @@ app.put('/recipes/:recipeId', [auth, upload.array('recipe_photos', 5)] , async(r
             }
         }
         else{
-            req.files.forEach(async file=>{
-                if (fs.existsSync(`public\\uploads\\${file.filename}`)){
-                    await unlinkAsync(`public\\uploads\\${file.filename}`);
-                }
-            })
             return res.status(500).send();
         }
     }) 
@@ -277,23 +221,14 @@ app.delete('/recipes/:recipeId', [auth] , async(req,res)=>{
             }
             else{
                 const oldRecipe = data[0];
-                // ingredients, cooking_steps, and recipe_photos format = name_-_*_-_name etc (separate with _-_*_-_) 
+
                 const query = 'delete from recipes where id=? and user_id=?';
                 const dataRecipe = [req.params.recipeId, req.user.id];
                 con.query(query, dataRecipe,async (error, data)=>{
                     if(!error){
-                        arrPhoto = oldRecipe.recipe_photos.split('_-_*_-_');
-                        if(arrPhoto.length>=2){
-                            arrPhoto.forEach(async filename=>{
-                                if(fs.existsSync(`public\\uploads\\${filename}`)){
-                                    await unlinkAsync(`public\\uploads\\${filename}`)
-                                }
-                            })
-                        }
-                        else{
-                            if(fs.existsSync(`public\\uploads\\${oldRecipe.recipe_photos}`)){
-                                await unlinkAsync(`public\\uploads\\${oldRecipe.recipe_photos}`)
-                            }
+                        const deletePhoto = JSON.parse(oldRecipe.recipe_photos);
+                        for(const photo of deletePhoto){
+                            await deleteByPublicId(photo.public_id);
                         }
                         return res.status(200).json({deleted: oldRecipe});
                     }
@@ -308,6 +243,15 @@ app.delete('/recipes/:recipeId', [auth] , async(req,res)=>{
         }
     }) 
 })
+
+// app.post('/tess',[upload.array('recipe_photos',5)],async (req,res)=>{
+//     let arrResult = [];
+//     for(const file of req.files){
+//         const result = await uploadFromBuffer(file.buffer);
+//         arrResult.push(result);
+//     }
+//     return res.json(arrResult)
+// })
 
 app.listen(port, ()=>{
     console.log(`server running at http://localhost:${port}/`)

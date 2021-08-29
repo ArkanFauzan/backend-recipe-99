@@ -11,7 +11,7 @@ const validateRecipe = (name, ingredients, cooking_steps, recipe_photos) =>{
     return  (name==="" || name===undefined 
             || ingredients==="" || ingredients===undefined
             || cooking_steps==="" || cooking_steps===undefined 
-            || recipe_photos==="" || recipe_photos===undefined 
+            || recipe_photos.length===0
             ) ? false : true;
 }
 

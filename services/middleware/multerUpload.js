@@ -1,17 +1,6 @@
 // import multer
 const multer  = require('multer');
-// import nanoid
-const { customAlphabet } = require('nanoid');
-const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-const nanoid = customAlphabet(alphabet, 33);
-
-const storage = multer.diskStorage({
-    destination: './public/uploads',
-    filename: function(_req, file, cb){
-        const lastIdx = file.originalname.split('.').length-1;
-        cb(null, nanoid() +'.' +file.originalname.split('.')[lastIdx]);
-    } 
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
     storage: storage,
