@@ -1,10 +1,9 @@
 require('dotenv').config();
-const AppUrl = 'http://localhost:5000';
 
 const express = require('express');
 const cors = require('cors');
 const app = express();
-const port = 5000 || process.env.PORT;
+const port = process.env.PORT || 5000;
 
 //import package nanoid
 const { customAlphabet } = require('nanoid');
