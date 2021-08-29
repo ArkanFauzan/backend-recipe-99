@@ -7,6 +7,14 @@ const validateRegister = (name, email, pass) =>{
     return !errName && !errPassword && !errEmail ? true : false;
 }
 
+const validateRecipe = (name, ingredients, cooking_steps, recipe_photos) =>{
+    return  (name==="" || name===undefined 
+            || ingredients==="" || ingredients===undefined
+            || cooking_steps==="" || cooking_steps===undefined 
+            || recipe_photos==="" || recipe_photos===undefined 
+            ) ? false : true;
+}
+
 module.exports = {
-    validateRegister
+    validateRegister, validateRecipe
 }
