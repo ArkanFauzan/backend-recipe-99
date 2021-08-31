@@ -16,7 +16,7 @@ const auth = (req, res, next)=>{
                     }
                 }
                 else{
-                    return res.status(500).send();
+                    return res.status(500).send({message:'query eror'});
                 }
             })
         }
