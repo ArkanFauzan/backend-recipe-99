@@ -136,7 +136,7 @@ app.post('/recipes', [auth, upload.array('recipe_photos', 5)] , async(req,res)=>
 })
 
 app.get('/recipes' , (req,res)=>{
-    const query = "select recipes.*,users.name as username from recipes join users on recipes.user_id=users.id";
+    const query = "select recipes.*,users.name as username from recipes join users on recipes.user_id=users.id order by recipes.created_at DESC";
     con.query(query, (err, data, fields)=>{
         if(!err){
             for(const recipe of data){
@@ -145,6 +145,44 @@ app.get('/recipes' , (req,res)=>{
                 recipe.recipe_photos = JSON.parse(recipe.recipe_photos);
             }
             return res.status(200).json({recipes:data});
+        }
+        else{
+            return res.status(500).send();
+        }
+    })
+})
+
+// get recipe without authentication (for show only)
+app.get('/recipe/:id', (req,res)=>{
+    const query = "select * from recipes where id=?";
+    con.query(query, [req.params.id], (err, data, fields)=>{
+        if(!err){
+            if(data.length!==1) {return res.status(401).send()};
+            const recipe =  Object.assign({}, data[0]);
+            recipe.ingredients = JSON.parse(recipe.ingredients);
+            recipe.cooking_steps = JSON.parse(recipe.cooking_steps);
+            recipe.recipe_photos = JSON.parse(recipe.recipe_photos);
+            
+            return res.status(200).json({recipe});
+        }
+        else{
+            return res.status(500).send();
+        }
+    })
+})
+
+// get recipe with authentication (data for edit purpose)
+app.get('/my-recipe/:id', [auth] , (req,res)=>{
+    const query = "select * from recipes where id=? and user_id=?";
+    con.query(query, [req.params.id, req.user.id], (err, data, fields)=>{
+        if(!err){
+            if(data.length!==1) {return res.status(401).send()};
+            const recipe =  Object.assign({}, data[0]);
+            recipe.ingredients = JSON.parse(recipe.ingredients);
+            recipe.cooking_steps = JSON.parse(recipe.cooking_steps);
+            recipe.recipe_photos = JSON.parse(recipe.recipe_photos);
+            
+            return res.status(200).json({recipe});
         }
         else{
             return res.status(500).send();
@@ -242,15 +280,6 @@ app.delete('/recipes/:recipeId', [auth] , async(req,res)=>{
         }
     }) 
 })
-
-// app.post('/tess',[upload.array('recipe_photos',5)],async (req,res)=>{
-//     let arrResult = [];
-//     for(const file of req.files){
-//         const result = await uploadFromBuffer(file.buffer);
-//         arrResult.push(result);
-//     }
-//     return res.json(arrResult)
-// })
 
 app.listen(port, ()=>{
     console.log(`server running at http://localhost:${port}/`)
