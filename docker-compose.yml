@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  recipe_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: recipe_backend
+    restart: always
+    working_dir: /usr/src/app
+    ports:
+      - "5000:5000"  # Host port 5000 -> Backend port 5000
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=recipe_db
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    depends_on:
+      recipe_db:
+        condition: service_healthy
+    networks:
+      - recipe_network
+
+  recipe_db:
+    image: mysql:8.0
+    container_name: recipe_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - recipe_db_data:/var/lib/mysql
+    networks:
+      - recipe_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+
+  recipe_nginx:
+    image: nginx:latest
+    container_name: recipe_nginx
+    restart: always
+    ports:
+      - "8001:80"  # Host port 8001 -> Nginx port 80
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - recipe_backend
+    networks:
+      - recipe_network
+
+networks:
+  recipe_network:
+
+volumes:
+  recipe_db_data:
